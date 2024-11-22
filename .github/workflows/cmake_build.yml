@@ -9,7 +9,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    container: 'rockylinux:8.8'
+    container: 'openanolis/anolisos:8.8'
     steps:
       - uses: actions/checkout@v4
       - name: Install dependencies
