@@ -2101,13 +2101,13 @@ IoResult SelectProcessor::process(Connection* conn, const hsql::SQLStatement* st
 
 IoResult SelectProcessor::handle_query_var(Connection* conn, const hsql::SelectStatement* p_statement)
 {
-  std::string var_name = p_statement->selectList->at(0)->getName();
+  std::string var_name = p_statement->selectList->at(0)->name;
   hsql::VarLevel var_level = p_statement->selectList->at(0)->var_level;
-  std::string var_column;
+  std::string var_column = var_name;
   if (p_statement->selectList->at(0)->hasAlias()) {
-      var_column = var_level == hsql::Global ? ("@@" + var_name) : ("@" + var_name);
+      var_column = p_statement->selectList->at(0)->getName();
   } else {
-      var_column = var_name;
+      var_column = var_level == hsql::Global ? ("@@" + var_column) : ("@" + var_column);
   }
     
   ColumnPacket var_column_packet{
