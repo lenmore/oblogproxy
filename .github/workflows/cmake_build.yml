@@ -9,9 +9,9 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    container: 'openanolis/anolisos:8.8'
+    container: 'rockylinux:8.8'
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - name: Install dependencies
         run: |
           curl -fsSLO --compressed https://cmake.org/files/v3.22/cmake-3.22.3-linux-x86_64.tar.gz
