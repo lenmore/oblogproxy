@@ -2,9 +2,9 @@ name: CMake Build
 
 on:
   pull_request:
-    branches: [ dev ]
+    branches: [ dev, v4 ]
   push:
-    branches: [ dev ]
+    branches: [ dev, v4 ]
 
 jobs:
   build:
