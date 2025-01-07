@@ -135,7 +135,7 @@ function modify_conf_file() {
 function start_binlog() {
   if [[ ${supervise_start} == "true" ]]; then
     cd ${deploy_path}/env
-    sh install.sh ${sys_user} ${sys_password} binlog >> ${log_file}
+    sh install.sh ${sys_user} ${sys_password} binlog ${deploy_path} >> ${log_file}
   else
     cd ${deploy_path}
     if [[ ! -z ${sys_user} &&  ! -z ${sys_password} ]]; then
@@ -157,26 +157,35 @@ function verify_params() {
 
   node_ip=$(jq -r ".node_ip" ${deploy_conf})
   if [[ -z "${node_ip}" ]]; then
+    echo "Given 'node_ip' is empty, try to use 'hostname -i' output $(hostname -i) as 'node_ip'"
     node_ip=$(hostname -i)
-  else
-    if [[ "${node_ip}" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
-      log_detail "Given node_ip: ${node_ip}"
-    else
-      log_detail "Invalid node_ip: ${node_ip}"
-      node_ip=$(hostname -i)
+  elif [ "${node_ip}" != "$(hostname -i)" ]; then
+    echo "Given 'node_ip': '${node_ip}' is different with output of 'hostname -i': '$(hostname -i)'"
+    read -p "Will you continue to use '${node_ip}' ? [Y/n]" choice
+    if [[ "$choice" == [Nn] ]]; then
+      echo "Please modify ${deploy_conf} and try again"
+      exit 1
     fi
   fi
 
-  log_detail "METADB_INFO = host: ${host}, database: ${database}, port: ${port}, user: ${user}, password: ${password}, node_ip: ${node_ip}"
+  # 'hostname -i' should also be checked to avoid multiple addresses
+  if [[ "${node_ip}" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+    log_detail "Given node_ip: ${node_ip}"
+  else
+    log_result "FAILED" "Invalid node_ip: ${node_ip}"
+    exit -1
+  fi
+
+  log_detail "METADB_INFO = host: ${host}, database: ${database}, port: ${port}, user: ${user}, node_ip: ${node_ip}"
   if [[ -z "${host}" || -z "${port}" || -z "${database}" || -z "${user}" || -z "${password}" || -z "${node_ip}" ]]; then
-    log_result "FAILED" "Unexpected metadb parameters, host: ${host}, port: ${port}, database: ${database}, user: ${user}, password: ${password}, node_ip: ${node_ip}"
+    log_result "FAILED" "Unexpected metadb parameters, host: ${host}, port: ${port}, database: ${database}, user: ${user}, node_ip: ${node_ip}"
     exit -1
   fi
 
   sys_user=$(jq -r ".sys_user" ${deploy_conf})
   sys_password=$(jq -r ".sys_password" ${deploy_conf})
   if [[ -z "${sys_user}"  || -z "${sys_password}" ]]; then
-    log_detail "!! Warning: Unexpected user parameters, sys user: ${sys_user}, sys password: ${sys_password}, may cause startup failed"
+    log_detail "!! Warning: Unexpected user parameters, sys user: ${sys_user}, may cause startup failed"
   fi
 
   supervise_start=$(jq -r ".supervise_start" ${deploy_conf})
@@ -273,7 +282,7 @@ function upgrade_schema() {
   diff -Z  ${schema_sql}  ${upgrade_path}/oblogproxy/conf/schema.sql >> ${log_file}
   mv ${schema_sql} "${deploy_path}/conf/schema.sql.bak.$(date '+%Y%m%d_%H%M%S')" && cp "${upgrade_path}/oblogproxy/conf/schema.sql" ${schema_sql}
 
-  log_detail "SCHEMA_SQL=${schema_sql}, CONF_FILE=${conf_file}, host: ${host}, port: ${port}, database: ${database}, user: ${user}, password: ${password}"
+  log_detail "SCHEMA_SQL=${schema_sql}, CONF_FILE=${conf_file}, host: ${host}, port: ${port}, database: ${database}, user: ${user}"
 
   mysql -h${host} -P${port} -u${user} -p${password} -D ${database} < ${schema_sql} >> ${log_file}
   if [[ $? -ne 0 ]]; then
@@ -323,9 +332,6 @@ function upgrade_bin() {
 function upgrade_binlog() {
   if [[ -z ${deploy_path} ]]; then
     deploy_path=/home/ds/oblogproxy
-  elif [[ $(basename ${deploy_path}) != "oblogproxy" ]]; then
-    log_result "FAILED" "deploy path is unexpected, e.g., /home/ds/oblogproxy"
-    exit -1
   fi
   if [ ! -d "${deploy_path}/log" ]; then
     mkdir ${deploy_path}/log
@@ -353,7 +359,7 @@ function upgrade_binlog() {
   cd ${deploy_path}
   if [[ ! -z "${sys_user}" ]]; then
     if [[ ! -z "${sys_password}" ]]; then
-        log_detail "Update sys ${sys_user}, password: ${sys_password}"
+        log_detail "Update sys ${sys_user}"
         sh run.sh config_sys ${sys_user} ${sys_password} false >> ${log_file}
     fi
   fi
