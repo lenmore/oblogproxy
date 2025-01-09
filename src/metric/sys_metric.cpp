@@ -288,6 +288,7 @@ bool collect_disk(Disk* disk_status, const std::string& path)
 
 bool collect_pro_disk(Disk* disk_status, const std::string& path)
 {
+  std::unique_lock<std::mutex> lock(g_metric_mutex);
   uint64_t folder_size_bytes = FsUtil::folder_size(path);
   disk_status->set_disk_usage_size_process_mb(folder_size_bytes / UNIT_MB);
   FsUtil::disk_info disk_info = FsUtil::space(path);
@@ -440,6 +441,7 @@ void batch_get_pro_stat(std::map<uint64_t, ProcessMetric*>& process_map)
   long s_cur_sys_cpu = get_sys_cpu_usage();
 
   for (auto process : process_map) {
+    std::unique_lock<std::mutex> lock(g_metric_mutex);
     set_cpu(s_pre_pro_cpu, s_cur_pro_cpu, limit_cpu_core, s_pre_sys_cpu, s_cur_sys_cpu, process);
     set_net(s_pre_pro_net, s_cur_pro_net, process);
   }
@@ -475,6 +477,7 @@ void get_mem_stat(std::map<std::string, std::string> status, ProcessMetric* proc
     logproxy::split(vmrss_str, ' ', vmrss_parts);
     if (!vmrss_parts.empty()) {
       uint64_t vmrss = std::stoul(vmrss_parts.at(0));
+      std::unique_lock<std::mutex> lock(g_metric_mutex);
       process_metric->memory_status()->set_mem_used_size_mb(vmrss / 1024L);
       process_metric->memory_status()->set_mem_total_size_mb(get_mem_total() / 1024L);
       process_metric->memory_status()->set_mem_used_ratio(double(process_metric->memory_status()->mem_used_size_mb()) /
@@ -552,10 +555,14 @@ void collect_by_pid_name(const std::string& pid_name, ProcessGroupMetric* proc_g
     } else {
       collect_pro_disk(process_metric->disk_status(), path);
     }
-    process_metric->set_client_id(path);
-    process_metric->set_fd_count(get_process_file_handle_count(pid));
-    if (!is_update) {
-      proc_group_metric->metric_group().push_back(process_metric);
+
+    {
+      std::unique_lock<std::mutex> lock(g_metric_mutex);
+      process_metric->set_client_id(path);
+      process_metric->set_fd_count(get_process_file_handle_count(pid));
+      if (!is_update) {
+        proc_group_metric->metric_group().push_back(process_metric);
+      }
     }
   }
 

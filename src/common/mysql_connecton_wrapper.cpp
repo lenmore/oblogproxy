@@ -92,7 +92,6 @@ void MySQLConnectionPool::cleanup_inactive_connections()
   auto now = Timer::now();
   OMS_INFO("The number of connections in the connection pool is:{}", _connection_pool.size());
   std::vector<sql::Connection*> to_delete;
-  defer(release_vector(to_delete));
   for (auto it = _active_time_map.begin(); it != _active_time_map.end();) {
     if ((now - it->second > _max_inactive_duration_us) || it->first->isClosed() || !it->first->isValid()) {
       to_delete.push_back(it->first);
@@ -101,9 +100,20 @@ void MySQLConnectionPool::cleanup_inactive_connections()
       ++it;
     }
   }
+
   for (auto conn : to_delete) {
-    _connection_pool.erase(conn);
+    if (_connection_pool.find(conn) != _connection_pool.end()) {
+      try {
+        _connection_pool.erase(conn);
+        delete conn;  // Safely delete the connection
+      } catch (...) {
+        OMS_ERROR("Exception occurred while deleting connection");
+      }
+    } else {
+      OMS_WARN("Connection not found in _connection_pool, skipping deletion");
+    }
   }
+  to_delete.clear();
 }
 
 void MySQLConnectionPool::start_cleanup_thread()
