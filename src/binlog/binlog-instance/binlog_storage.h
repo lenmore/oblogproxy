@@ -45,8 +45,10 @@ struct SerializeEvent {
   bool is_rotation = false;
   std::vector<uint64_t> rotate_offsets;
   std::vector<ObLogEvent*> rotate_events;
-  // Used to record the current snapshot status
-  BinlogIndexRecord index_record;
+  // Used to record the current snapshot status,If there are n rotation events in the memory, there must be n+1 index
+  // records.
+  uint32_t index_pos = 0;
+  std::vector<BinlogIndexRecord> index_records;
 
 public:
   explicit SerializeEvent() : events(), buffer(2 * 1024 * 1024, 8 * 1024), rotate_offsets(), rotate_events()
@@ -56,6 +58,8 @@ public:
   {}
 
   void reset();
+
+  void update_index_record(const BinlogIndexRecord& index_record);
 };
 
 inline SerializeEvent create_serialize_event()
@@ -132,7 +136,7 @@ public:
 
   int64_t init_binlog_file(RotateEvent* rotate_event);
 
-  int64_t init_next_binlog_file(RotateEvent* rotate_event);
+  int64_t init_next_binlog_file(RotateEvent* rotate_event, BinlogIndexRecord& index_record);
 
   int global_allocation_of_backfill_events(SerializeEvent& event_batch);
 

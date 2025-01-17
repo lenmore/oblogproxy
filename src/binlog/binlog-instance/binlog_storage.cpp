@@ -28,6 +28,16 @@ void SerializeEvent::reset()
   buffer.reset_offset();
 }
 
+void SerializeEvent::update_index_record(const BinlogIndexRecord& index_record)
+{
+  if (index_records.size() <= index_pos) {
+    index_records.push_back(index_record);
+  } else {
+    assert(index_pos == index_records.size() - 1);
+    index_records[index_pos] = index_record;
+  }
+}
+
 void SerializeHandler::onEvent(SerializeEvent& data, std::int64_t sequence)
 {
   data.reset();
@@ -81,12 +91,13 @@ void StorageHandler::onEvent(SerializeEvent& data, std::int64_t sequence, bool e
     for (const auto rotate_index : data.rotate_offsets) {
       assert(rotate_index > cur_offset);
       if (_binlog_storage->persistent_binlog(
-              data.buffer.data() + cur_offset, rotate_index - cur_offset, data.index_record) != OMS_OK) {
+              data.buffer.data() + cur_offset, rotate_index - cur_offset, data.index_records[index]) != OMS_OK) {
         OMS_FATAL("placement failed !!!");
         throw std::runtime_error("placement failed !!!");
       }
       cur_offset = rotate_index;
-      if (_binlog_storage->init_next_binlog_file(dynamic_cast<RotateEvent*>(data.rotate_events[index])) != OMS_OK) {
+      if (_binlog_storage->init_next_binlog_file(
+              dynamic_cast<RotateEvent*>(data.rotate_events[index]), data.index_records[index]) != OMS_OK) {
         OMS_ERROR("Failed to initialize next binlog file");
         throw std::runtime_error("Failed to initialize next binlog file");
       }
@@ -98,14 +109,23 @@ void StorageHandler::onEvent(SerializeEvent& data, std::int64_t sequence, bool e
      * The remaining data after this batch rotation is written
      */
     if (cur_offset < data.buffer.offset()) {
-      if (_binlog_storage->persistent_binlog(
-              data.buffer.data() + cur_offset, data.buffer.offset() - cur_offset, data.index_record) != OMS_OK) {
+      if (data.index_records.size() != index + 1) {
+        OMS_FATAL("index record is missing, unexpected");
+        throw std::runtime_error("index record is missing, unexpected !!!");
+      }
+      if (_binlog_storage->persistent_binlog(data.buffer.data() + cur_offset,
+              data.buffer.offset() - cur_offset,
+              data.index_records[index]) != OMS_OK) {
         throw std::runtime_error("placement failed !!!");
       }
     }
 
   } else {
-    if (_binlog_storage->persistent_binlog(data.buffer.data(), data.buffer.offset(), data.index_record) != OMS_OK) {
+    if (data.index_records.size() != 1) {
+      OMS_FATAL("index record is missing, unexpected");
+      throw std::runtime_error("index record is missing, unexpected !!!");
+    }
+    if (_binlog_storage->persistent_binlog(data.buffer.data(), data.buffer.offset(), data.index_records[0]) != OMS_OK) {
       OMS_FATAL("placement failed !!!");
       throw std::runtime_error("placement failed !!!");
     }
@@ -113,6 +133,8 @@ void StorageHandler::onEvent(SerializeEvent& data, std::int64_t sequence, bool e
 
   release_vector(data.rotate_events);
   data.rotate_offsets.clear();
+  data.index_pos = 0;
+  data.index_records.clear();
   Counter::instance().count_write_io(data.buffer.offset());
   data.is_rotation = false;
 }
@@ -311,7 +333,7 @@ int64_t BinlogStorage::init_binlog_file(RotateEvent* rotate_event)
   return OMS_OK;
 }
 
-int64_t BinlogStorage::init_next_binlog_file(RotateEvent* rotate_event)
+int64_t BinlogStorage::init_next_binlog_file(RotateEvent* rotate_event, BinlogIndexRecord& index_record)
 {
   auto* flags = static_cast<unsigned char*>(malloc(FLAGS_LEN));
   int2store(flags, 0);
@@ -351,7 +373,7 @@ int64_t BinlogStorage::init_next_binlog_file(RotateEvent* rotate_event)
   }
   OMS_INFO(
       "Successfully init binlog file(add FormatDescriptionEvent + PreviousGtidsLogEvent), current pos: {}", buff_pos);
-  return add_next_binlog_index(_index_record, rotate_event);
+  return add_next_binlog_index(index_record, rotate_event);
 }
 
 int BinlogStorage::global_allocation_of_backfill_events(SerializeEvent& event_batch)
@@ -362,7 +384,6 @@ int BinlogStorage::global_allocation_of_backfill_events(SerializeEvent& event_ba
       continue;
     }
     bool is_rotate = false;
-    Counter::instance().count_write(1);
     _rate_limiter.in_event_with_alarm(event->get_header()->get_event_length());
     switch (event->get_header()->get_type_code()) {
       case HEARTBEAT_LOG_EVENT: {
@@ -487,11 +508,14 @@ int BinlogStorage::global_allocation_of_backfill_events(SerializeEvent& event_ba
     this->_cur_pos += len;
     event->get_header()->set_next_position(this->_cur_pos);
     event->set_filter(false);
+
+    event_batch.update_index_record(_index_record);
     if (is_rotate) {
       rotate_binlog_file(_last_record_ts, event_batch);
+      event_batch.index_pos++;
     }
   }
-  event_batch.index_record = _index_record;
+  event_batch.update_index_record(_index_record);
   return OMS_OK;
 }
 
@@ -531,7 +555,8 @@ int BinlogStorage::add_next_binlog_index(BinlogIndexRecord& index_record, const 
   string bin_path = string(".") + BINLOG_DATA_DIR + next_file;
   index_record.set_index(rotate_event->get_index());
   index_record.set_file_name(bin_path);
-  index_record.set_position(_cur_pos);
+  uint64_t file_size = FsUtil::file_size(index_record.get_file_name());
+  index_record.set_position(file_size);
   if (OMS_OK != g_index_manager->add_index(index_record)) {
     return OMS_FAILED;
   }
@@ -965,6 +990,9 @@ int64_t BinlogStorage::rotate_binlog_file(uint64_t timestamp, SerializeEvent& ev
 {
   if (this->_cur_pos > s_meta.binlog_config()->max_binlog_size()) {
     this->_binlog_file_index++;
+    _index_record.set_index(_binlog_file_index);
+    _index_record.set_file_name(
+        string(".") + BINLOG_DATA_DIR + binlog::CommonUtils::fill_binlog_file_name(this->_binlog_file_index));
     OMS_DEBUG("Next binlog file index rotation:{}", this->_binlog_file_index);
     auto* rotate_event = new RotateEvent(BINLOG_MAGIC_SIZE,
         binlog::CommonUtils::fill_binlog_file_name(this->_binlog_file_index),

@@ -211,10 +211,10 @@ int MetaDBProtocol::fetch_task(const Task& task, std::vector<Task*>& tasks)
 
 int MetaDBProtocol::fetch_unfinished_tasks(const string& node_id, std::vector<Task>& tasks)
 {
-  std::string query_sql = "SELECT * FROM tasks WHERE execution_node = \"" + node_id + "\" AND status < " +
+  std::string query_sql = "SELECT * FROM tasks WHERE execution_node = \"" + node_id + "\" AND ( status < " +
                           std::to_string(TaskStatus::COMPLETED) +
                           " OR (status = " + std::to_string(TaskStatus::FAILED) + " AND retry_count < " +
-                          std::to_string(MAX_TASK_RETRY_TIMES) + ")";
+                          std::to_string(MAX_TASK_RETRY_TIMES) + "))";
   return execute_multi_rows_query(get_sql_connection(), query_sql, tasks, task_rs_converter);
 }
 
@@ -1949,7 +1949,11 @@ int BinlogInstanceDAO::update_instance(
     int count = 1;
     assign_instance(binlog_instance, stmt, count, false, true);
     assign_instance(condition, stmt, count, true);
-    stmt->executeUpdate();
+    int ret = stmt->executeUpdate();
+    // NOTE: 在 affected_rows = 0 时，必须返回 OMS_FAILED, 异节点拉起依赖该逻辑
+    if (ret == 0) {
+      return OMS_FAILED;
+    }
   } catch (sql::SQLException& e) {
     OMS_ERROR("Failed to update instance: {},condition:{},reason:{}",
         binlog_instance.serialize_to_json(),

@@ -17,6 +17,7 @@ oceanbase-ce-cdc-4.3.1.0-100000082024051609.el7.x86_64.rpm
 oceanbase-ce-cdc-4.3.2.1-100000072024081218.el7.x86_64.rpm
 oceanbase-ce-cdc-4.3.3.1-100000062024102115.el7.x86_64.rpm
 oceanbase-ce-cdc-4.3.4.1-101000032024121814.el7.x86_64.rpm
+oceanbase-ce-cdc-4.3.5.0-100000042024123117.el7.x86_64.rpm
 
 [tools]
 obdevtools-gcc9-9.3.0-52022092914.el7.x86_64.rpm

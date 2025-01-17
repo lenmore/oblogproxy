@@ -347,15 +347,15 @@ VALUES ('admin', '1');
 -- v4.2.0 引入
 REPLACE
     INTO `config_template` (`version`, `key_name`, `value`, `granularity`, `scope`)
-VALUES ('1', 'record_queue_size', '200000', 0, '');
+VALUES ('1', 'record_queue_size', '20000', 0, '');
 
 REPLACE
     INTO `config_template` (`version`, `key_name`, `value`, `granularity`, `scope`)
-VALUES ('1', 'read_wait_num', '20000', 0, '');
+VALUES ('1', 'read_wait_num', '2000', 0, '');
 
 REPLACE
     INTO `config_template` (`version`, `key_name`, `value`, `granularity`, `scope`)
-VALUES ('1', 'storage_wait_num', '100000', 0, '');
+VALUES ('1', 'storage_wait_num', '2000', 0, '');
 
 REPLACE
     INTO `config_template` (`version`, `key_name`, `value`, `granularity`, `scope`)
